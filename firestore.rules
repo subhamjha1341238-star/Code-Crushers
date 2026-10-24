@@ -1,0 +1,99 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net: Default-deny all unmatched paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Entity validation functions
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'email'])
+        && data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'streakCount', 'totalXP', 'totalStepsCompleted', 'activeSkillGoal', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == request.auth.uid
+        && data.email is string && data.email.size() <= 200
+        && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100))
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
+        && (!('streakCount' in data) || (data.streakCount is number && data.streakCount >= 0))
+        && (!('totalXP' in data) || (data.totalXP is number && data.totalXP >= 0))
+        && (!('totalStepsCompleted' in data) || (data.totalStepsCompleted is number && data.totalStepsCompleted >= 0))
+        && (!('activeSkillGoal' in data) || (data.activeSkillGoal is string && data.activeSkillGoal.size() <= 200));
+    }
+
+    function isValidLearningSession(data, userId) {
+      return data.keys().hasAll(['sessionId', 'userId', 'skillGoal'])
+        && data.keys().hasOnly(['sessionId', 'userId', 'skillGoal', 'currentFocusScore', 'momentumStatus', 'adaptiveLayout', 'stepsCompleted', 'timeSpentSec', 'hintsClicked', 'quizAttempts', 'updatedAt'])
+        && data.sessionId is string && data.sessionId.size() <= 128
+        && data.userId is string && data.userId == userId
+        && data.skillGoal is string && data.skillGoal.size() <= 200
+        && (!('currentFocusScore' in data) || (data.currentFocusScore is number && data.currentFocusScore >= 0 && data.currentFocusScore <= 100))
+        && (!('momentumStatus' in data) || (data.momentumStatus is string && data.momentumStatus.size() <= 100))
+        && (!('adaptiveLayout' in data) || (data.adaptiveLayout is string && data.adaptiveLayout.size() <= 50))
+        && (!('stepsCompleted' in data) || (data.stepsCompleted is number && data.stepsCompleted >= 0))
+        && (!('timeSpentSec' in data) || (data.timeSpentSec is number && data.timeSpentSec >= 0));
+    }
+
+    function isValidSavedRoadmap(data, userId) {
+      return data.keys().hasAll(['roadmapId', 'userId', 'skillGoal', 'mermaidRoadmap'])
+        && data.keys().hasOnly(['roadmapId', 'userId', 'skillGoal', 'summary', 'mermaidRoadmap', 'stepsCount', 'updatedAt'])
+        && data.roadmapId is string && data.roadmapId.size() <= 128
+        && data.userId is string && data.userId == userId
+        && data.skillGoal is string && data.skillGoal.size() <= 200
+        && data.mermaidRoadmap is string && data.mermaidRoadmap.size() <= 8000
+        && (!('summary' in data) || (data.summary is string && data.summary.size() <= 1000))
+        && (!('stepsCount' in data) || (data.stepsCount is number && data.stepsCount >= 0));
+    }
+
+    // User Profile Rules
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false; // Blanket user listing forbidden
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming());
+      allow update: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming())
+                    && incoming().uid == existing().uid;
+      allow delete: if isOwner(userId);
+
+      // Sessions Subcollection
+      match /sessions/{sessionId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(sessionId) && isValidLearningSession(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(sessionId) && isValidLearningSession(incoming(), userId)
+                      && incoming().sessionId == existing().sessionId
+                      && incoming().userId == existing().userId;
+        allow delete: if isOwner(userId);
+      }
+
+      // Saved Roadmaps Subcollection
+      match /roadmaps/{roadmapId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(roadmapId) && isValidSavedRoadmap(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(roadmapId) && isValidSavedRoadmap(incoming(), userId)
+                      && incoming().roadmapId == existing().roadmapId
+                      && incoming().userId == existing().userId;
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}

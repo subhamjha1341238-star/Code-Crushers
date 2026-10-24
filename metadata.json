@@ -1,0 +1,6 @@
+{
+  "name": "AdaptLearn AI — Real-Time Adaptive Learning Engine",
+  "description": "AI-powered adaptive learning platform that analyzes live student telemetry to dynamically calibrate difficulty, switch UI layouts, and generate real-time Mermaid.js roadmaps.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
